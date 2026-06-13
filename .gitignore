@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Runtime data dumps (downloaded on the fly by the Streamlit app)
+temp_*.csv
+
+# OS
+.DS_Store
+Thumbs.db
