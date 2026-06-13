@@ -13,6 +13,30 @@ from portfolio import Portfolio
 from execution import SimulatedExecutionHandler
 from metrics import buy_and_hold_metrics
 
+SAMPLE_DATA_PATH = "sample_data.csv"
+SAMPLE_SYMBOL = "AAPL"
+
+
+def load_price_data(symbol, start_date, end_date):
+    """Fetch live data from Yahoo Finance, falling back to the bundled sample dataset.
+
+    Yahoo Finance often rate-limits shared cloud IPs, so this keeps the hosted demo working
+    even when the live download fails. Returns (csv_path, effective_symbol, source) where
+    ``source`` is 'live' or 'sample'.
+    """
+    try:
+        raw_df = yf.Ticker(symbol).history(start=start_date, end=end_date)
+    except Exception:
+        raw_df = pd.DataFrame()
+
+    if not raw_df.empty:
+        csv_path = f"temp_{symbol}_data.csv"
+        raw_df.to_csv(csv_path)
+        return csv_path, symbol, "live"
+
+    # Live data unavailable -> fall back to the bundled AAPL sample.
+    return SAMPLE_DATA_PATH, SAMPLE_SYMBOL, "sample"
+
 
 def run_simulation(csv_path, symbol, lookback, m_thresh, z_thresh):
     events_queue = queue.Queue()
@@ -101,55 +125,57 @@ with tab1:
     z_thresh = col_p2.slider("Z-Score Volatility Threshold", 0.1, 1.5, 0.25, step=0.05)
 
     if st.button("🚀 Run Pure Strategy"):
-        with st.spinner(f"Downloading live data for {symbol}..."):
-            raw_df = yf.Ticker(symbol).history(start=start_date, end=end_date)
-            if raw_df.empty:
-                st.error("No data found. Please verify the ticker symbol and date range.")
-            else:
-                csv_filename = f"temp_{symbol}_data.csv"
-                raw_df.to_csv(csv_filename)
+        with st.spinner(f"Loading data for {symbol}..."):
+            csv_filename, run_symbol, source = load_price_data(symbol, start_date, end_date)
 
-                with st.spinner("Running quantitative simulation..."):
-                    df, buys, sells, ret, sharpe, max_dd, matrix, bench = run_simulation(
-                        csv_filename, symbol, lookback, m_thresh, z_thresh
-                    )
+        if source == "sample":
+            st.warning(
+                f"Live data for **{symbol}** is unavailable right now "
+                f"(Yahoo Finance may be rate-limiting this host). "
+                f"Showing the bundled **{SAMPLE_SYMBOL}** sample dataset instead."
+            )
 
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Sharpe Ratio", f"{sharpe:.2f}",
-                              delta=f"{sharpe - bench['sharpe']:.2f} vs Buy & Hold",
-                              help="Excess return per unit of risk. The delta compares against simply buying and holding the asset.")
-                    c2.metric("Total Return (ROI)", f"{ret * 100:.2f}%",
-                              delta=f"{(ret - bench['return']) * 100:.2f}% vs Buy & Hold",
-                              help="Total return over the selected period, compared against a buy-and-hold benchmark.")
-                    c3.metric("Max Drawdown", f"{max_dd * 100:.2f}%",
-                              delta=f"{(max_dd - bench['max_dd']) * 100:.2f}% vs Buy & Hold", delta_color="inverse",
-                              help="Maximum peak-to-trough loss. A smaller drawdown than buy-and-hold means lower risk.")
+        with st.spinner("Running quantitative simulation..."):
+            df, buys, sells, ret, sharpe, max_dd, matrix, bench = run_simulation(
+                csv_filename, run_symbol, lookback, m_thresh, z_thresh
+            )
 
-                    st.caption(
-                        f"📌 Benchmark — Buy & Hold {symbol}: "
-                        f"Return {bench['return'] * 100:.2f}% · "
-                        f"Sharpe {bench['sharpe']:.2f} · "
-                        f"Max DD {bench['max_dd'] * 100:.2f}%"
-                    )
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Sharpe Ratio", f"{sharpe:.2f}",
+                      delta=f"{sharpe - bench['sharpe']:.2f} vs Buy & Hold",
+                      help="Excess return per unit of risk. The delta compares against simply buying and holding the asset.")
+            c2.metric("Total Return (ROI)", f"{ret * 100:.2f}%",
+                      delta=f"{(ret - bench['return']) * 100:.2f}% vs Buy & Hold",
+                      help="Total return over the selected period, compared against a buy-and-hold benchmark.")
+            c3.metric("Max Drawdown", f"{max_dd * 100:.2f}%",
+                      delta=f"{(max_dd - bench['max_dd']) * 100:.2f}% vs Buy & Hold", delta_color="inverse",
+                      help="Maximum peak-to-trough loss. A smaller drawdown than buy-and-hold means lower risk.")
 
-                    st.subheader("📊 Equity & Signals Chart")
-                    fig, ax = plt.subplots(figsize=(12, 5))
-                    ax.plot(df.index, df['Close'], label='Price', color='gray', alpha=0.5)
-                    if buys: ax.scatter(df.loc[buys].index, df.loc[buys]['Close'], marker='^', color='green', s=100,
-                                        label='Buy Signal')
-                    if sells: ax.scatter(df.loc[sells].index, df.loc[sells]['Close'], marker='v', color='red', s=100,
-                                         label='Sell Signal')
-                    ax.legend()
-                    ax.grid(alpha=0.3)
-                    st.pyplot(fig)
+            st.caption(
+                f"📌 Benchmark — Buy & Hold {run_symbol}: "
+                f"Return {bench['return'] * 100:.2f}% · "
+                f"Sharpe {bench['sharpe']:.2f} · "
+                f"Max DD {bench['max_dd'] * 100:.2f}%"
+            )
 
-                    st.subheader("🎲 Transition Percentage Heatmap")
-                    matrix_df = pd.DataFrame(matrix,
-                                             index=['Bearish (0)', 'Neutral (1)', 'Bullish (2)'],
-                                             columns=['Bearish (0)', 'Neutral (1)', 'Bullish (2)'])
+            st.subheader("📊 Equity & Signals Chart")
+            fig, ax = plt.subplots(figsize=(12, 5))
+            ax.plot(df.index, df['Close'], label='Price', color='gray', alpha=0.5)
+            if buys: ax.scatter(df.loc[buys].index, df.loc[buys]['Close'], marker='^', color='green', s=100,
+                                label='Buy Signal')
+            if sells: ax.scatter(df.loc[sells].index, df.loc[sells]['Close'], marker='v', color='red', s=100,
+                                 label='Sell Signal')
+            ax.legend()
+            ax.grid(alpha=0.3)
+            st.pyplot(fig)
 
-                    styled_matrix = matrix_df.style.background_gradient(cmap='Blues', axis=None).format("{:.1%}")
-                    st.dataframe(styled_matrix, use_container_width=True)
+            st.subheader("🎲 Transition Percentage Heatmap")
+            matrix_df = pd.DataFrame(matrix,
+                                     index=['Bearish (0)', 'Neutral (1)', 'Bullish (2)'],
+                                     columns=['Bearish (0)', 'Neutral (1)', 'Bullish (2)'])
+
+            styled_matrix = matrix_df.style.background_gradient(cmap='Blues', axis=None).format("{:.1%}")
+            st.dataframe(styled_matrix, use_container_width=True)
 
 # ================= Tab 2: Dynamic Optimization =================
 with tab2:
@@ -169,10 +195,15 @@ with tab2:
         except ValueError:
             st.error("❌ Input error: Please ensure you only entered comma-separated numbers.")
         else:
-            with st.spinner(f"Downloading data for {symbol}..."):
-                raw_df = yf.Ticker(symbol).history(start=start_date, end=end_date)
-                csv_filename = f"temp_{symbol}_data.csv"
-                raw_df.to_csv(csv_filename)
+            with st.spinner(f"Loading data for {symbol}..."):
+                csv_filename, run_symbol, source = load_price_data(symbol, start_date, end_date)
+
+            if source == "sample":
+                st.warning(
+                    f"Live data for **{symbol}** is unavailable right now "
+                    f"(Yahoo Finance may be rate-limiting this host). "
+                    f"Optimising on the bundled **{SAMPLE_SYMBOL}** sample dataset instead."
+                )
 
             combinations = list(itertools.product(opt_lookbacks, opt_m_threshs, opt_z_threshs))
             total_runs = len(combinations)
@@ -194,7 +225,7 @@ with tab2:
                     mins, secs = divmod(int(remaining_time), 60)
                     status_text.text(f"Running combination {i + 1}/{total_runs} | ETA: {mins:02d}:{secs:02d}")
 
-                _, _, _, ret, sharpe, max_dd, _, _ = run_simulation(csv_filename, symbol, l, m, z)
+                _, _, _, ret, sharpe, max_dd, _, _ = run_simulation(csv_filename, run_symbol, l, m, z)
 
                 results.append({
                     'Lookback': l,
