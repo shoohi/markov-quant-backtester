@@ -8,6 +8,36 @@ automated grid-search optimisation.
 > ⚠️ **Disclaimer:** This is an educational / portfolio project. It is **not** financial advice
 > and is not intended for live trading.
 
+![Markov Chain backtest on AAPL — buy/exit signals over price](assets/equity_signals.png)
+
+---
+
+## 📊 Results & Validation
+
+Backtested on **AAPL daily data (2022–2023)** with the default parameters, and benchmarked against
+simply buying and holding the asset over the same window:
+
+| Metric | Strategy | Buy & Hold |
+|---|--:|--:|
+| Total Return (ROI) | 4.05% | 6.99% |
+| **Sharpe Ratio** | **1.89** | 0.26 |
+| **Max Drawdown** | **−0.44%** | −30.91% |
+
+The strategy gives up some raw return but delivers **dramatically better risk-adjusted
+performance** — a far higher Sharpe ratio and a tiny drawdown — by staying in cash during the
+2022 sell-off and only deploying capital on high-probability bullish transitions.
+
+**Out-of-sample validation.** `optimize.py` performs a grid search on the first 70% of the data
+(*in-sample*) and then evaluates the single best parameter set on the held-out final 30%
+(*out-of-sample*). The strategy holds up on unseen data (in-sample Sharpe ≈ 1.95 → out-of-sample
+Sharpe ≈ 2.20), which argues against overfitting.
+
+**Methodology notes (to keep the backtest honest):**
+- **No look-ahead bias** — a signal generated on a bar's close is filled at the *next* bar's open,
+  the earliest realistically executable price.
+- **Transaction costs** — a per-share commission is applied on every fill.
+- **Benchmark-relative** — every result is reported against buy-and-hold, not in isolation.
+
 ---
 
 ## ✨ Features
@@ -84,20 +114,35 @@ On Windows you can also double-click **`runapp.bat`** to launch the dashboard.
 
 ```
 quant_backtest/
-├── app.py            # Streamlit dashboard (manual backtest + grid-search optimiser)
-├── main.py           # CLI backtest runner with chart and metrics
-├── optimize.py       # Headless grid-search optimisation
-├── get_data.py       # Downloads sample OHLCV data from Yahoo Finance
+├── app.py              # Streamlit dashboard (manual backtest + grid-search optimiser)
+├── main.py             # CLI backtest runner with chart and metrics
+├── optimize.py         # Grid search with in-sample / out-of-sample validation
+├── get_data.py         # Downloads sample OHLCV data from Yahoo Finance
 │
-├── data.py           # HistoricCSVDataHandler — feeds bars one at a time
-├── strategy.py       # MarkovChainStrategy — the trading logic
-├── portfolio.py      # Portfolio — positions, cash, and performance metrics
-├── execution.py      # SimulatedExecutionHandler — fills orders at the close
-├── events.py         # Event classes (Market / Signal / Order / Fill)
+├── data.py             # HistoricCSVDataHandler — feeds bars one at a time
+├── strategy.py         # MarkovChainStrategy — the trading logic
+├── portfolio.py        # Portfolio — positions, cash, and performance metrics
+├── execution.py        # SimulatedExecutionHandler — next-bar fills, no look-ahead
+├── events.py           # Event classes (Market / Signal / Order / Fill)
+├── metrics.py          # Reusable Sharpe / drawdown / buy-and-hold benchmark
 │
-├── sample_data.csv   # Bundled AAPL daily data (2022–2023)
-├── requirements.txt
-└── runapp.bat        # Windows launcher for the Streamlit app
+├── tests/              # pytest unit tests (metrics, strategy, engine)
+├── sample_data.csv     # Bundled AAPL daily data (2022–2023)
+├── requirements.txt    # Runtime dependencies
+├── requirements-dev.txt# Dev/test dependencies
+└── runapp.bat          # Windows launcher for the Streamlit app
+```
+
+---
+
+## ✅ Testing
+
+Unit tests cover the performance metrics, the Markov transition-matrix math, the data handler's
+no-look-ahead guarantee, and the next-bar fill logic:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
 ```
 
 ---

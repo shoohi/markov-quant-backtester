@@ -1,7 +1,7 @@
-import numpy as np
 import pandas as pd
 
 from events import OrderEvent
+from metrics import annualised_sharpe, max_drawdown
 
 
 class Portfolio:
@@ -57,28 +57,11 @@ class Portfolio:
         self.equity_curve.append({'Date': dt, 'Equity': total_equity})
 
     def calculate_performance_metrics(self):
-        """Compute ROI, annualised Sharpe ratio and maximum drawdown."""
-        df = pd.DataFrame(self.equity_curve)
-        df.set_index('Date', inplace=True)
+        """Compute ROI, annualised Sharpe ratio and maximum drawdown for the equity curve."""
+        df = pd.DataFrame(self.equity_curve).set_index('Date')
 
-        # 1. Daily portfolio returns.
-        df['Daily_Return'] = df['Equity'].pct_change()
-
-        # 2. Total return (ROI).
         total_return = (df['Equity'].iloc[-1] - self.initial_capital) / self.initial_capital
+        sharpe_ratio = annualised_sharpe(df['Equity'].pct_change())
+        max_dd = max_drawdown(df['Equity'])
 
-        # 3. Annualised Sharpe ratio (assuming 252 trading days and a 0% risk-free rate).
-        mean_return = df['Daily_Return'].mean()
-        std_return = df['Daily_Return'].std()
-
-        if std_return > 0 and not np.isnan(std_return):
-            sharpe_ratio = (mean_return / std_return) * np.sqrt(252)
-        else:
-            sharpe_ratio = 0.0
-
-        # 4. Maximum drawdown.
-        df['Peak'] = df['Equity'].cummax()
-        df['Drawdown'] = (df['Equity'] - df['Peak']) / df['Peak']
-        max_drawdown = df['Drawdown'].min()
-
-        return total_return, sharpe_ratio, max_drawdown
+        return total_return, sharpe_ratio, max_dd

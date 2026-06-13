@@ -6,6 +6,7 @@ from data import HistoricCSVDataHandler
 from strategy import MarkovChainStrategy
 from portfolio import Portfolio
 from execution import SimulatedExecutionHandler
+from metrics import buy_and_hold_metrics
 
 # --- Configuration ---
 CSV_PATH = 'sample_data.csv'
@@ -45,6 +46,10 @@ def run_backtest():
             print("\nAnalytical simulation finished.")
             break
 
+        current_dt = data_handler.get_latest_bars(1)[0][0]
+        # Fill orders queued on the previous bar at this bar's open (no look-ahead).
+        execution.process_pending_orders()
+
         while True:
             try:
                 event = events_queue.get(False)
@@ -53,9 +58,7 @@ def run_backtest():
 
             if event is not None:
                 if event.type == 'MARKET':
-                    current_dt = data_handler.get_latest_bars(1)[0][0]
                     strategy.calculate_signals(event)
-                    portfolio.record_current_equity(current_dt)
 
                 elif event.type == 'SIGNAL':
                     portfolio.update_signal(event)
@@ -70,16 +73,24 @@ def run_backtest():
                 elif event.type == 'FILL':
                     portfolio.update_fill(event)
 
+        # Record equity after this bar's fills have been applied.
+        portfolio.record_current_equity(current_dt)
+
     # --- Compute and print quantitative performance metrics ---
     total_return, sharpe_ratio, max_dd = portfolio.calculate_performance_metrics()
 
-    print("\n" + "=" * 40)
-    print("         Strategy Performance Report")
-    print("=" * 40)
-    print(f"Total Return (ROI):       {total_return * 100:.2f}%")
-    print(f"Annualised Sharpe Ratio:  {sharpe_ratio:.2f}")
-    print(f"Maximum Drawdown:         {max_dd * 100:.2f}%")
-    print("=" * 40)
+    price_df = pd.read_csv(CSV_PATH, index_col=0, parse_dates=True).sort_index()
+    benchmark = buy_and_hold_metrics(price_df['Close'])
+
+    print("\n" + "=" * 56)
+    print("              Strategy vs. Buy & Hold")
+    print("=" * 56)
+    print(f"{'Metric':<22}{'Strategy':>15}{'Buy & Hold':>17}")
+    print("-" * 56)
+    print(f"{'Total Return (ROI)':<22}{total_return * 100:>14.2f}%{benchmark['return'] * 100:>16.2f}%")
+    print(f"{'Sharpe Ratio':<22}{sharpe_ratio:>15.2f}{benchmark['sharpe']:>17.2f}")
+    print(f"{'Max Drawdown':<22}{max_dd * 100:>14.2f}%{benchmark['max_dd'] * 100:>16.2f}%")
+    print("=" * 56)
 
     # --- Print the transition matrix ---
     final_matrix = strategy._build_transition_matrix(strategy.state_history)
@@ -93,15 +104,14 @@ def run_backtest():
     print("=" * 45)
 
     # --- Plot the price chart with signals ---
-    df = pd.read_csv(CSV_PATH, index_col=0, parse_dates=True)
-    df.sort_index(inplace=True)
+    df = price_df
 
     plt.figure(figsize=(14, 6))
     plt.plot(df.index, df['Close'], label=f'{SYMBOL} Price', color='gray', alpha=0.5)
 
     # Overlay a 100-day SMA so the trend is visible at a glance.
-    df['SMA_100'] = df['Close'].rolling(window=100).mean()
-    plt.plot(df.index, df['SMA_100'], label='SMA 100', color='blue', alpha=0.3, linestyle='--')
+    sma_100 = df['Close'].rolling(window=100).mean()
+    plt.plot(df.index, sma_100, label='SMA 100', color='blue', alpha=0.3, linestyle='--')
 
     if buy_signals:
         plt.scatter(df.loc[buy_signals].index, df.loc[buy_signals]['Close'], marker='^',
@@ -117,6 +127,7 @@ def run_backtest():
     )
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     plt.show()
 
 

@@ -5,12 +5,17 @@ from events import MarketEvent
 class HistoricCSVDataHandler:
     """Reads market data from a CSV file and pushes a MarketEvent onto the queue on demand."""
 
-    def __init__(self, events_queue, csv_path, symbol):
+    def __init__(self, events_queue, csv_path=None, symbol=None, data=None):
         self.events = events_queue
         self.symbol = symbol
 
-        # Load and chronologically sort the data.
-        self.data = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+        # Accept either a CSV path or an in-memory DataFrame (handy for train/test splits).
+        if data is not None:
+            self.data = data.copy()
+        elif csv_path is not None:
+            self.data = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+        else:
+            raise ValueError("Provide either csv_path or data.")
         self.data.sort_index(inplace=True)
 
         # Iterator that lets us pull one row at a time.

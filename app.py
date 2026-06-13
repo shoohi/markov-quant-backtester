@@ -11,6 +11,7 @@ from data import HistoricCSVDataHandler
 from strategy import MarkovChainStrategy
 from portfolio import Portfolio
 from execution import SimulatedExecutionHandler
+from metrics import buy_and_hold_metrics
 
 
 def run_simulation(csv_path, symbol, lookback, m_thresh, z_thresh):
@@ -30,6 +31,11 @@ def run_simulation(csv_path, symbol, lookback, m_thresh, z_thresh):
     while True:
         if not data_handler.update_bars():
             break
+
+        current_dt = data_handler.get_latest_bars(1)[0][0]
+        # Fill orders queued on the previous bar at this bar's open (no look-ahead).
+        execution.process_pending_orders()
+
         while True:
             try:
                 event = events_queue.get(False)
@@ -38,9 +44,7 @@ def run_simulation(csv_path, symbol, lookback, m_thresh, z_thresh):
 
             if event is not None:
                 if event.type == 'MARKET':
-                    current_dt = data_handler.get_latest_bars(1)[0][0]
                     strategy.calculate_signals(event)
-                    portfolio.record_current_equity(current_dt)
                 elif event.type == 'SIGNAL':
                     portfolio.update_signal(event)
                     if event.signal_type == 'LONG':
@@ -52,11 +56,15 @@ def run_simulation(csv_path, symbol, lookback, m_thresh, z_thresh):
                 elif event.type == 'FILL':
                     portfolio.update_fill(event)
 
+        # Record equity after this bar's fills have been applied.
+        portfolio.record_current_equity(current_dt)
+
     total_return, sharpe, max_dd = portfolio.calculate_performance_metrics()
     df = pd.read_csv(csv_path, index_col=0, parse_dates=True).sort_index()
     matrix = strategy._build_transition_matrix(strategy.state_history)
+    benchmark = buy_and_hold_metrics(df['Close'])
 
-    return df, buy_signals, sell_signals, total_return, sharpe, max_dd, matrix
+    return df, buy_signals, sell_signals, total_return, sharpe, max_dd, matrix, benchmark
 
 
 # ================= UI STREAMLIT =================
@@ -102,17 +110,27 @@ with tab1:
                 raw_df.to_csv(csv_filename)
 
                 with st.spinner("Running quantitative simulation..."):
-                    df, buys, sells, ret, sharpe, max_dd, matrix = run_simulation(
+                    df, buys, sells, ret, sharpe, max_dd, matrix, bench = run_simulation(
                         csv_filename, symbol, lookback, m_thresh, z_thresh
                     )
 
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Sharpe Ratio", f"{sharpe:.2f}",
-                              help="Measures excess return per unit of risk. A ratio above 1.0 is generally considered good.")
+                              delta=f"{sharpe - bench['sharpe']:.2f} vs Buy & Hold",
+                              help="Excess return per unit of risk. The delta compares against simply buying and holding the asset.")
                     c2.metric("Total Return (ROI)", f"{ret * 100:.2f}%",
-                              help="The total return on investment over the selected period.")
+                              delta=f"{(ret - bench['return']) * 100:.2f}% vs Buy & Hold",
+                              help="Total return over the selected period, compared against a buy-and-hold benchmark.")
                     c3.metric("Max Drawdown", f"{max_dd * 100:.2f}%",
-                              help="The maximum observed loss from a peak to a trough, indicating the strategy's risk.")
+                              delta=f"{(max_dd - bench['max_dd']) * 100:.2f}% vs Buy & Hold", delta_color="inverse",
+                              help="Maximum peak-to-trough loss. A smaller drawdown than buy-and-hold means lower risk.")
+
+                    st.caption(
+                        f"📌 Benchmark — Buy & Hold {symbol}: "
+                        f"Return {bench['return'] * 100:.2f}% · "
+                        f"Sharpe {bench['sharpe']:.2f} · "
+                        f"Max DD {bench['max_dd'] * 100:.2f}%"
+                    )
 
                     st.subheader("📊 Equity & Signals Chart")
                     fig, ax = plt.subplots(figsize=(12, 5))
@@ -176,7 +194,7 @@ with tab2:
                     mins, secs = divmod(int(remaining_time), 60)
                     status_text.text(f"Running combination {i + 1}/{total_runs} | ETA: {mins:02d}:{secs:02d}")
 
-                _, _, _, ret, sharpe, max_dd, _ = run_simulation(csv_filename, symbol, l, m, z)
+                _, _, _, ret, sharpe, max_dd, _, _ = run_simulation(csv_filename, symbol, l, m, z)
 
                 results.append({
                     'Lookback': l,
