@@ -1,9 +1,13 @@
 # 📈 Markov Chain Quant Backtester
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://markov-quant-backtester-nyhvappehrrrwqpgupw4hsl.streamlit.app/)
+
 An event-driven backtesting engine for equities, built around a **pure statistical trading
 strategy**: a Markov chain over volatility-adjusted (Z-score) market states, with no lagging
 trend indicators. It ships with an interactive **Streamlit** dashboard for manual backtests and
 automated grid-search optimisation.
+
+**🔗 Live demo:** <https://markov-quant-backtester-nyhvappehrrrwqpgupw4hsl.streamlit.app/>
 
 > ⚠️ **Disclaimer:** This is an educational / portfolio project. It is **not** financial advice
 > and is not intended for live trading.
